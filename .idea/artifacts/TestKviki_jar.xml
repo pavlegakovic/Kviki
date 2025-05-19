@@ -1,0 +1,10 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="TestKviki:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/TestKviki_jar</output-path>
+    <root id="archive" name="TestKviki.jar">
+      <element id="module-output" name="TestKviki" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$MAVEN_REPOSITORY$/commons-net/commons-net/3.8.0/commons-net-3.8.0.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>
