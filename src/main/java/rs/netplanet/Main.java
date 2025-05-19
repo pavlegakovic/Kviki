@@ -16,9 +16,6 @@ import java.util.TimerTask;
 
 public class Main {
 
-    private static final String REQUEST_ID_FILE = "request_id.txt";
-    private static int requestIdCounter = loadRequestId(); // Inicijalni request ID
-
     public static JsonArray convertFileToJson(String filePath) {
         JsonArray jsonArray = new JsonArray();
         String[] fieldNames = {
@@ -29,14 +26,13 @@ public class Main {
 
         try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
             String line;
-            br.readLine(); // Preskoči prvi red (header)
+            br.readLine(); // Preskoči header
             while ((line = br.readLine()) != null) {
                 JsonObject jsonObject = new JsonObject();
                 String[] splitParts = line.split("\\|");
 
                 for (int i = 0; i < splitParts.length && i < fieldNames.length; i++) {
                     String value = splitParts[i].trim();
-
                     jsonObject.addProperty(fieldNames[i], value);
                 }
 
@@ -64,24 +60,22 @@ public class Main {
                 System.out.println("Fajl ne postoji na FTP serveru.");
                 return false;
             }
-            FTPFile remoteFile = files[0];
 
             boolean needsDownload = true;
             if (Files.exists(Paths.get(localFilePath))) {
-                // Provera da li su lokalni i remote fajlovi identični koristeći MD5 hash
-                String localFileHash = getFileChecksum(localFilePath);
+                String localHash = getFileChecksum(localFilePath);
                 InputStream remoteInputStream = ftpClient.retrieveFileStream(remoteFilePath);
-                String remoteFileHash = getInputStreamChecksum(remoteInputStream);
+                String remoteHash = getInputStreamChecksum(remoteInputStream);
 
-                if (localFileHash.equals(remoteFileHash)) {
+                if (localHash.equals(remoteHash)) {
                     needsDownload = false;
                 } else {
-                    filesDifferent = true; // Fajlovi nisu isti po sadržaju
+                    filesDifferent = true;
                 }
 
-                ftpClient.completePendingCommand(); // Oslobađanje resursa
+                ftpClient.completePendingCommand();
             } else {
-                filesDifferent = true; // Lokalni fajl ne postoji, pa su različiti
+                filesDifferent = true;
             }
 
             if (needsDownload) {
@@ -91,7 +85,7 @@ public class Main {
                     filesDifferent = true;
                 }
             } else {
-                System.out.println("Lokalni fajl je azuriran. Nema potrebe za preuzimanjem.");
+                System.out.println("Lokalni fajl je ažuriran. Nema potrebe za preuzimanjem.");
             }
 
             ftpClient.logout();
@@ -111,7 +105,7 @@ public class Main {
         return filesDifferent;
     }
 
-    public static void sendPostRequest(String urlString, JsonArray res, int requestIdCounter, String scenarioKey, String secret, String storeCodes) {
+    public static void sendPostRequest(String urlString, JsonArray res, long requestId, String scenarioKey, String secret, String storeCodes) {
         try {
             URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -124,10 +118,8 @@ public class Main {
             mainJsonObject.addProperty("scenarioKey", scenarioKey);
             mainJsonObject.addProperty("secret", secret);
             mainJsonObject.addProperty("storeCodes", storeCodes);
-            mainJsonObject.addProperty("requestId", requestIdCounter);
+            mainJsonObject.addProperty("requestId", requestId);
             mainJsonObject.add("data", res);
-
-            saveRequestId(requestIdCounter);
 
             try (OutputStream os = connection.getOutputStream()) {
                 byte[] input = mainJsonObject.toString().getBytes("utf-8");
@@ -144,34 +136,13 @@ public class Main {
                     response.append(responseLine.trim());
                 }
                 System.out.println("Response: " + response.toString());
-                System.out.println("Request ID: " + requestIdCounter);
+                System.out.println("Request ID (timestamp): " + requestId);
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private static int loadRequestId() {
-        try (BufferedReader br = new BufferedReader(new FileReader(REQUEST_ID_FILE))) {
-            String line = br.readLine();
-            if (line != null) {
-                return Integer.parseInt(line.trim());
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return 1;
-    }
-
-    private static void saveRequestId(int requestId) {
-        try (FileWriter writer = new FileWriter(REQUEST_ID_FILE)) {
-            writer.write(String.valueOf(requestId));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    // Funkcija za obradu fajla i zamenu vrednosti
     public static void preprocessFile(String filePath) {
         try {
             Path tempFile = Files.createTempFile("processed_", ".csv");
@@ -181,14 +152,12 @@ public class Main {
 
                 String line;
                 while ((line = br.readLine()) != null) {
-                    // Zamenjujemo "Posebni cenovnik" i "Osnovni cenovnik" praznim poljem
                     line = line.replace("Posebni cenovnik", "Osnovni cenovnik");
                     bw.write(line);
                     bw.newLine();
                 }
             }
 
-            // Premeštamo obrađeni fajl nazad na originalno mesto
             Files.move(tempFile, Paths.get(filePath), StandardCopyOption.REPLACE_EXISTING);
             System.out.println("Fajl je uspešno obrađen.");
         } catch (IOException e) {
@@ -196,19 +165,16 @@ public class Main {
         }
     }
 
-    // Funkcija za izračunavanje MD5 hash-a lokalnog fajla
     private static String getFileChecksum(String filePath) throws IOException {
         try (InputStream fis = new FileInputStream(filePath)) {
             return calculateMD5Checksum(fis);
         }
     }
 
-    // Funkcija za izračunavanje MD5 hash-a iz InputStream (remote fajl)
     private static String getInputStreamChecksum(InputStream is) throws IOException {
         return calculateMD5Checksum(is);
     }
 
-    // Generalna funkcija za MD5 hashiranje
     private static String calculateMD5Checksum(InputStream inputStream) throws IOException {
         try {
             MessageDigest digest = MessageDigest.getInstance("MD5");
@@ -252,43 +218,37 @@ public class Main {
 
                     boolean filesDifferent = downloadFileIfUpdated(ftpHost, ftpUser, ftpPass, remoteFilePath, localFilePath);
 
-                    // Poziv preprocessFile da zameni "Posebni cenovnik" i "Osnovni cenovnik"
                     preprocessFile(localFilePath);
 
                     JsonArray res = convertFileToJson(file.getAbsolutePath());
 
                     if (filesDifferent) {
-                        // Delimo JSON array na 3 dela
                         int chunkSize = res.size() / 3;
-
-                        // Prvo podelimo u tri dela
                         JsonArray chunk1 = new JsonArray();
                         JsonArray chunk2 = new JsonArray();
                         JsonArray chunk3 = new JsonArray();
 
-                        for (int i = 0; i < chunkSize; i++) {
-                            chunk1.add(res.get(i));
-                        }
-                        for (int i = chunkSize; i < 2 * chunkSize; i++) {
-                            chunk2.add(res.get(i));
-                        }
-                        for (int i = 2 * chunkSize; i < res.size(); i++) {
-                            chunk3.add(res.get(i));
-                        }
+                        for (int i = 0; i < chunkSize; i++) chunk1.add(res.get(i));
+                        for (int i = chunkSize; i < 2 * chunkSize; i++) chunk2.add(res.get(i));
+                        for (int i = 2 * chunkSize; i < res.size(); i++) chunk3.add(res.get(i));
 
-                        // Poslati tri API zahteva sa inkrementiranim request ID
-                        for (int i = 0; i < 3; i++) {
-                            JsonArray currentChunk = (i == 0) ? chunk1 : (i == 1) ? chunk2 : chunk3;
+                        JsonArray[] chunks = {chunk1, chunk2, chunk3};
 
-                            // Povećavamo request ID za svaki poziv
-                            requestIdCounter++;
+                        for (JsonArray currentChunk : chunks) {
+                            long timestampRequestId = System.currentTimeMillis();
+
                             for (JsonElement element : configArray) {
                                 JsonObject jsonObject = element.getAsJsonObject();
                                 String scenarioKey = jsonObject.get("scenarioKey").getAsString();
                                 String secret = jsonObject.get("secret").getAsString();
                                 String storeCodes = jsonObject.get("storeCodes").getAsString();
 
-                                sendPostRequest("http://49.13.217.99:8085/api/v1/item/sync", currentChunk, requestIdCounter, scenarioKey, secret, storeCodes);
+                                sendPostRequest("http://49.13.217.99:8085/api/v1/item/sync", currentChunk, timestampRequestId, scenarioKey, secret, storeCodes);
+                            }
+
+                            try {
+                                Thread.sleep(5); // da ne budu identični timestamp-ovi
+                            } catch (InterruptedException ignored) {
                             }
                         }
 
@@ -297,7 +257,8 @@ public class Main {
                         System.out.println("Fajlovi su identični, API nije pozvan.");
                     }
                 }
-            }, 0, 5 * 60 * 1000);
+            }, 0, 5 * 60 * 1000); // svakih 5 minuta
+
         } catch (IOException e) {
             e.printStackTrace();
         }
